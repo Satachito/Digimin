@@ -1,0 +1,7 @@
+# 公開するのは Pico 2 W 版だけ（ほかの試作フォルダは手元に残す）
+/*
+!/.gitignore
+!/README.md
+!/LICENSE
+!/theremin_pico2w/
+.DS_Store
