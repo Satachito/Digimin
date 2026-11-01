@@ -24,7 +24,7 @@
   サイン波 100% で鳴る。絞り切る（オフ）と、ブラウザで作った音色で鳴る。
 
   Core0: Wi-Fi / ウェブサーバー / LED。
-  Core1: PWM の 1 周期ごとの割り込み（約 96kHz、最優先）で波形を計算 (GP16)。メインループで
+  Core1: PWM の 1 周期ごとの割り込み（約 96kHz、最優先）で波形を計算 (GP22)。メインループで
          ToF センサー 2 台と可変抵抗を処理する。
          音の割り込みを Core0 に置くと、Wi-Fi の処理が割り込みを止める区間で最大 70µs（7 周期）
          遅れ、ブラウザの更新のたびに「チチッ」と鳴った（実測）。Core1 には Wi-Fi の処理が来ないので
@@ -42,8 +42,8 @@
   ディレイとリバーブは音を切っても余韻が残る。量を 0 にするとオフ（処理は回し続けるので、オンにした
   瞬間に古い音が鳴ることはない）。バッファはディレイ最長 1 秒（int16, 約 190KB）、リバーブ 約 110KB。
 
-  配線（物理ピン: GP9 = 12, GP10 = 14, GP11 = 15, GP16 = 21, GP20 = 26, GP21 = 27, GP22 = 29, GP28 = 34）
-    GP16 -[1kΩ]--+--[1kΩ]--+--[10µF]--+--> AUX (Tip/Ring 両方)
+  配線（物理ピン: GP16 = 21, GP17 = 22, GP18 = 24, GP19 = 25, GP20 = 26, GP21 = 27, GP22 = 29, GP28 = 34）
+    GP22 -[1kΩ]--+--[1kΩ]--+--[10µF]--+--> AUX (Tip/Ring 両方)
                  |         |          |
               [10nF]    [10nF]     [3.3kΩ]
                  |         |          |
@@ -51,9 +51,9 @@
 
     距離センサー x2（VL53L1X / VL53L4CD のどちらでも可、起動時にチップ ID で自動判別）
                     VIN -> 3V3(OUT),  GND -> GND,  GPIO1 は未接続
-                    音程側: SDA -> GP10, SCL -> GP11（I2C1）,       XSHUT -> GP9
-                    音量側: SDA -> GP20, SCL -> GP21（I2C0 で専用）, XSHUT -> GP22
-                    音量側を GP10 / GP11 に並列にしても動く。音量側は起動時に I2C0 → I2C1 の順に探す
+                    音程側: SDA -> GP20, SCL -> GP21（I2C0）,       XSHUT -> GP17
+                    音量側: SDA -> GP18, SCL -> GP19（I2C1 で専用）, XSHUT -> GP16
+                    音量側を GP20 / GP21 に並列にしても動く。音量側は起動時に I2C1 → I2C0 の順に探す
 
     可変抵抗（サイン波, 10kΩ B カーブ）  両端 -> 3V3(OUT) と AGND,  ワイパー -> GP28
     基板上の LED（Wi-Fi チップ経由）: 音が出る状態（どれかの比率が 0 でない）のとき点灯
@@ -82,15 +82,15 @@ bool wifiPassBypassed = false;  // つまみを右いっぱいにして起動し
 uint32_t rebootAtMs = 0;    // 0 以外: この時刻に再起動する（パスワード変更後）
 
 // ---- ピン ----
-const uint8_t PIN_AUDIO = 16;    // PWM はどのピンでも出せる
-const uint8_t PIN_TOF_SDA = 10;  // I2C1（Wire1）の SDA。音程センサー（古い配線では音量センサーも）
-const uint8_t PIN_TOF_SCL = 11;  // I2C1（Wire1）の SCL
-TwoWire &tofBus = Wire1;         // GP10 / GP11 は I2C1 なので Wire ではなく Wire1
-const uint8_t PIN_VOL_SDA = 20;  // I2C0（Wire）の SDA。音量センサー専用（つながっていなければ I2C1 を探す）
-const uint8_t PIN_VOL_SCL = 21;  // I2C0（Wire）の SCL
-TwoWire &volBus = Wire;
-const uint8_t PIN_XSHUT_PITCH = 9;   // 音程と音量はここを入れ替えるだけで役割が入れ替わる
-const uint8_t PIN_XSHUT_VOL = 22;
+const uint8_t PIN_AUDIO = 22;    // PWM はどのピンでも出せる
+const uint8_t PIN_TOF_SDA = 20;  // I2C0（Wire）の SDA。音程センサー（音量センサーを並べてもよい）
+const uint8_t PIN_TOF_SCL = 21;  // I2C0（Wire）の SCL
+TwoWire &tofBus = Wire;
+const uint8_t PIN_VOL_SDA = 18;  // I2C1（Wire1）の SDA。音量センサー専用（つながっていなければ I2C0 を探す）
+const uint8_t PIN_VOL_SCL = 19;  // I2C1（Wire1）の SCL
+TwoWire &volBus = Wire1;         // GP18 / GP19 は I2C1 なので Wire ではなく Wire1
+const uint8_t PIN_XSHUT_PITCH = 17;  // 音程と音量はここを入れ替えるだけで役割が入れ替わる
+const uint8_t PIN_XSHUT_VOL = 16;
 const uint8_t PIN_POT_SINE = 28;  // ADC2
 const uint8_t PIN_SMPS_MODE = 65;  // Wi-Fi チップの GPIO1 = 電源回路のモード切り替え（HIGH で PWM モード）
 
@@ -1321,8 +1321,8 @@ bool i2cAckOn(TwoWire &w, uint8_t addr) {
   return i2cAck(addr);
 }
 
-// 起動したセンサーが 0x29 で返事をするまで待つ。音量側は I2C0（専用）と I2C1（共有）の両方を見て、
-// 返事があった方を返す（どちらからも返事がなければ I2C1。初期化が失敗して FAIL と表示される）
+// 起動したセンサーが 0x29 で返事をするまで待つ。音量側は I2C1（専用）と I2C0（共有）の両方を見て、
+// 返事があった方を返す（どちらからも返事がなければ I2C0。初期化が失敗して FAIL と表示される）
 TwoWire *waitBoot(bool tryVolBus, uint32_t timeoutMs) {
   uint32_t t0 = millis();
   while (millis() - t0 < timeoutMs) {
@@ -1338,8 +1338,8 @@ TwoWire *waitBoot(bool tryVolBus, uint32_t timeoutMs) {
   return &tofBus;
 }
 
-// 2 台ともリセットして起動し直す。音程側は I2C1 で TOF_ADDR_PITCH に変える。
-// 音量側は I2C0（なければ I2C1 で音程側と共有）の 0x29
+// 2 台ともリセットして起動し直す。音程側は I2C0 で TOF_ADDR_PITCH に変える。
+// 音量側は I2C1（なければ I2C0 で音程側と共有）の 0x29
 void tofInitAll() {
   digitalWrite(PIN_XSHUT_PITCH, LOW);
   digitalWrite(PIN_XSHUT_VOL, LOW);
@@ -1514,7 +1514,7 @@ void printReport() {
       Serial.print(i == 0 ? "P(" : "  V(");
       Serial.print(ts[i]->ok ? "OK" : "FAIL");
       Serial.print(ts[i]->id == ID_VL53L4CD ? ",4CD" : ts[i]->id == ID_VL53L1X ? ",L1X" : ",?");
-      Serial.print(ts[i]->bus == &volBus ? ",I2C0" : ",I2C1");
+      Serial.print(ts[i]->bus == &Wire ? ",I2C0" : ",I2C1");
       if (!ts[i]->ok) { Serial.print(",step"); Serial.print(ts[i]->failStep); }
       if (ts[i]->id != ID_VL53L4CD && ts[i]->id != ID_VL53L1X) Serial.print(ts[i]->id, HEX);
       Serial.print("):");
@@ -1540,6 +1540,9 @@ void printReport() {
       Serial.print((int)(targetMix[i] * 100.0f + 0.5f));
       Serial.print(i < 2 ? "/" : "%");
     }
+    Serial.print("  pot=");
+    Serial.print((int)(potSine * 100.0f + 0.5f));
+    Serial.print("%");
     Serial.print("  amp=");
     Serial.print(targetAmp, 2);
     Serial.print("  hz=");
