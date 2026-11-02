@@ -23,7 +23,25 @@ An open electronic instrument played with two time-of-flight distance sensors �
 | 抵抗 1kΩ ×2、3.3kΩ ×1 / コンデンサ 10nF ×2、10µF ×1 | |
 | 3.5mm ステレオジャック | 1 |
 
-配線図・ピン表・RC フィルタの定数・初期値など、詳しい仕様は [theremin_pico2w/SPEC.md](theremin_pico2w/SPEC.md) を参照。
+## ピン表
+
+| 物理ピン | GP | つなぐ先 |
+|---|---|---|
+| 21 | GP16 | 音量センサー XSHUT |
+| 22 | GP17 | 音程センサー XSHUT |
+| 24 | GP18 | 音量センサー SDA（I2C1） |
+| 25 | GP19 | 音量センサー SCL（I2C1） |
+| 26 | GP20 | 音程センサー SDA（I2C0） |
+| 27 | GP21 | 音程センサー SCL（I2C0） |
+| 29 | GP22 | 音の PWM 出力 → RC フィルタ → ジャック |
+| 34 | GP28 | つまみのワイパー |
+| 36 | 3V3(OUT) | センサー VIN ×2、つまみの片端 |
+| 33 | AGND | つまみのもう片端 |
+| 3, 8, 13, 18, 23, 28, 38 | GND | センサー GND ×2、RC フィルタ・ジャックの GND |
+
+センサーの GPIO1 は未接続。
+
+RC フィルタの定数・初期値など、詳しい仕様は [theremin_pico2w/SPEC.md](theremin_pico2w/SPEC.md) を参照。
 
 ## ファームの書き込み
 
