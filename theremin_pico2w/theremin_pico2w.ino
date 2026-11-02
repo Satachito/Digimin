@@ -5,8 +5,7 @@
   Pico 2 W が Wi-Fi のアクセスポイントになる。Wi-Fi の名前は「Digimin-XXXX」（XXXX はチップ固有 ID の
   末尾 4 桁で、ボードごとに違う。複数台あっても名前がかぶらない）。スマホをその Wi-Fi につなぐと
   操作画面が開く（開かなければ http://192.168.42.1/）。パスワードは初期状態ではなし。画面の「Wi-Fi」で
-  設定できる（保存すると再起動）。忘れたときは、つまみを右いっぱいに回したまま電源を入れると、その回だけ
-  パスワードなしで起動する（保存したパスワードは消えない）。名前は画面の見出しとシリアル出力に出る。
+  設定できる（保存すると再起動）。名前は画面の見出しとシリアル出力に出る。
 
   ブラウザで操作できるもの
     音色: サイン波 / 三角波 / ノコギリ波の比率（合計は常に 100%。全部 0 で無音）
@@ -20,8 +19,10 @@
     起動時の設定: 今の設定を保存しておくと、電源を入れたときにそれで起動する（保存先は 0 番の枠）
     プリセット: 7 個まで名前をつけて保存（本体のフラッシュに残る。保存先は 1〜7 番の枠）
     画面の言語: 日本語 / 英語（端末の言語で自動選択、右上のボタンで切り替え。選んだ言語はブラウザに記憶）
-  本体のつまみ（GP28）はスイッチとして使う。少しでも上げる（オン）と、ブラウザの設定に関係なく
-  サイン波 100% で鳴る。絞り切る（オフ）と、ブラウザで作った音色で鳴る。
+  本体のつまみ（GP28）で Wi-Fi を切り替える。絞り切ると Wi-Fi オフ、上げるとオン（パスワードを設定して
+  いればパスワードあり）、右いっぱいにするとパスワードなしでオン（保存したパスワードは消えない）。
+  Wi-Fi の電波を出している間は、約 6 回/秒の小さな「ブツッ」が音に乗る（電源の揺れ。実測）ので、
+  演奏するときはつまみを絞り切って Wi-Fi を切る。
 
   Core0: Wi-Fi / ウェブサーバー / LED。
   Core1: PWM の 1 周期ごとの割り込み（約 96kHz、最優先）で波形を計算 (GP22)。メインループで
@@ -78,7 +79,8 @@ struct Params;
 const char *WIFI_SSID_BASE = "Digimin";  // 実際の名前は "Digimin-XXXX"（XXXX はチップ固有 ID の末尾 4 桁）
 String wifiSsid;
 String wifiPass;            // 空 = パスワードなし。フラッシュに保存（WifiCfg）
-bool wifiPassBypassed = false;  // つまみを右いっぱいにして起動したので、今回はパスワードなし
+enum WifiState : uint8_t { WIFI_ST_OFF, WIFI_ST_PASS, WIFI_ST_OPEN };  // つまみの位置で決まる
+WifiState wifiState = WIFI_ST_OFF;  // いま動いている状態（PASS でもパスワード未設定ならパスワードなし）
 uint32_t rebootAtMs = 0;    // 0 以外: この時刻に再起動する（パスワード変更後）
 
 // ---- ピン ----
@@ -91,7 +93,7 @@ const uint8_t PIN_VOL_SCL = 19;  // I2C1（Wire1）の SCL
 TwoWire &volBus = Wire1;         // GP18 / GP19 は I2C1 なので Wire ではなく Wire1
 const uint8_t PIN_XSHUT_PITCH = 17;  // 音程と音量はここを入れ替えるだけで役割が入れ替わる
 const uint8_t PIN_XSHUT_VOL = 16;
-const uint8_t PIN_POT_SINE = 28;  // ADC2
+const uint8_t PIN_KNOB = 28;  // ADC2
 const uint8_t PIN_SMPS_MODE = 65;  // Wi-Fi チップの GPIO1 = 電源回路のモード切り替え（HIGH で PWM モード）
 
 // ---- ブラウザから変えられる設定 ----
@@ -223,8 +225,7 @@ int revApLen[REV_NAP], revApOfs[REV_NAP];
 
 // 表示用の測定値
 volatile float liveCm[2] = {1e6f, 1e6f};  // 音程, 音量
-volatile float potSine = 0.0f;
-volatile bool knobOn = false;  // 本体のつまみがオン（サイン波 100%）
+volatile float knobPos = 0.0f;
 // 診断用: 音の割り込みの間隔（本来は約 10.4µs）。最大値と、20µs を超えた回数
 volatile uint32_t isrGapMaxUs = 0, isrGapLate = 0;
 volatile uint32_t isrDurMaxUs = 0;  // 診断用: 割り込み 1 回の処理時間の最大（µs）
@@ -784,9 +785,9 @@ String stateJson() {
   j += "\"live\":{\"pitchCm\":" + (pc < 1000 ? String(pc, 1) : String("null")) +
        ",\"volCm\":" + (vc < 1000 ? String(vc, 1) : String("null")) +
        ",\"hz\":" + String((float)targetHz, 1) + ",\"amp\":" + String((float)targetAmp, 2) +
-       ",\"pot\":" + String((float)potSine, 2) + ",\"knobOn\":" + String(knobOn ? "true" : "false") + "},";
+       ",\"pot\":" + String((float)knobPos, 2) + "},";
   j += "\"wifiPass\":" + String(wifiPass.length() > 0 ? "true" : "false") +
-       ",\"wifiBypassed\":" + String(wifiPassBypassed ? "true" : "false") + ",";
+       ",\"wifiOpen\":" + String(wifiState == WIFI_ST_OPEN ? "true" : "false") + ",";
   j += "\"ssid\":\"" + wifiSsid + "\"";
   j += "}";
   return j;
@@ -833,19 +834,14 @@ int slotArg() {
   return (i >= 0 && i < N_PRESETS) ? i : -1;
 }
 
+// 操作画面の URL を登録する（起動時に 1 回。Wi-Fi のオン / オフとは別）
 void webInit() {
-  WiFi.mode(WIFI_AP);
   pico_unique_board_id_t uid;
   pico_get_unique_board_id(&uid);
   char suffix[5];
   snprintf(suffix, sizeof(suffix), "%02X%02X", uid.id[PICO_UNIQUE_BOARD_ID_SIZE_BYTES - 2],
            uid.id[PICO_UNIQUE_BOARD_ID_SIZE_BYTES - 1]);
   wifiSsid = String(WIFI_SSID_BASE) + "-" + suffix;
-  bool usePass = wifiPass.length() > 0 && !wifiPassBypassed;
-  WiFi.softAP(wifiSsid.c_str(), usePass ? wifiPass.c_str() : nullptr);
-  IPAddress ip = WiFi.softAPIP();
-  dns.start(53, "*", ip);  // どのアドレスを開いても操作画面に来るようにする（キャプティブポータル）
-
   server.on("/", []() { server.send(200, "text/html; charset=utf-8", INDEX_HTML); });
   server.on("/api/state", []() { server.send(200, "application/json", stateJson()); });
   server.on("/api/set", handleSet);
@@ -890,12 +886,59 @@ void webInit() {
     server.sendHeader("Location", String("http://") + WiFi.softAPIP().toString() + "/");
     server.send(302, "text/plain", "");
   });
-  server.begin();
+}
+
+// Wi-Fi をつまみの状態に合わせる（Core0）。切り替えのたびにアクセスポイントを立ち上げ直す
+void wifiApply(WifiState st) {
+  if (wifiState != WIFI_ST_OFF) {
+    dns.stop();
+    WiFi.disconnectAP();
+  }
+  wifiState = st;
+  if (st == WIFI_ST_OFF) {
+    Serial.println("Wi-Fi off (knob down)");
+    return;
+  }
+  static bool serverStarted = false;
+  bool usePass = wifiPass.length() > 0 && st == WIFI_ST_PASS;
+  WiFi.mode(WIFI_AP);
+  IPAddress apIp(192, 168, 42, 1);  // 決めておかないとライブラリの既定（192.168.4.1）になる
+  WiFi.softAPConfig(apIp, apIp, IPAddress(255, 255, 255, 0));
+  WiFi.softAP(wifiSsid.c_str(), usePass ? wifiPass.c_str() : nullptr);
+  IPAddress ip = WiFi.softAPIP();
+  dns.start(53, "*", ip);  // どのアドレスを開いても操作画面に来るようにする（キャプティブポータル）
+  if (!serverStarted) {
+    server.begin();
+    serverStarted = true;
+  }
   Serial.print("Wi-Fi AP \"");
   Serial.print(wifiSsid);
   Serial.print("\" started, http://");
   Serial.print(ip);
-  Serial.println(usePass ? "  (password set)" : wifiPassBypassed ? "  (no password: knob was full up at power-on)" : "  (no password)");
+  Serial.println(usePass ? "  (password set)" : st == WIFI_ST_OPEN ? "  (no password: knob full up)" : "  (no password)");
+}
+
+// つまみの位置から Wi-Fi の状態を決める。境目でパタパタしないようにヒステリシスをつける
+// （オフ ↔ オン: 3% / 6%、パスワードあり ↔ なし: 85% / 90%）
+WifiState knobWifiState(WifiState cur, float pot) {
+  if (pot < 0.03f) return WIFI_ST_OFF;
+  if (cur == WIFI_ST_OFF && pot <= 0.06f) return WIFI_ST_OFF;
+  if (pot >= 0.90f) return WIFI_ST_OPEN;
+  if (cur == WIFI_ST_OPEN && pot >= 0.85f) return WIFI_ST_OPEN;
+  return WIFI_ST_PASS;
+}
+
+// つまみを回している途中で何度も立ち上げ直さないよう、同じ状態が 0.7 秒続いてから切り替える
+void wifiKnobPoll() {
+  static WifiState want = WIFI_ST_OFF;
+  static uint32_t sinceMs = 0;
+  WifiState st = knobWifiState(wifiState, knobPos);
+  uint32_t nowMs = millis();
+  if (st != want) {
+    want = st;
+    sinceMs = nowMs;
+  }
+  if (want != wifiState && nowMs - sinceMs >= 700) wifiApply(want);
 }
 
 void setup() {
@@ -913,9 +956,8 @@ void setup() {
   reverbInit();
   presetsInit();
   wifiCfgLoad();
-  // つまみを右いっぱい（90% 以上）にして電源を入れたら、今回だけパスワードなしで起動する
   analogReadResolution(12);
-  wifiPassBypassed = analogRead(PIN_POT_SINE) > 4095 * 0.9f;
+  knobPos = analogRead(PIN_KNOB) / 4095.0f;  // 起動時の Wi-Fi はすぐにつまみの位置で決める（Core1 が動く前）
   if (!presetLoad(0)) applyParams();  // 起動時の設定（0 番の枠）が保存してあれば読み込む
   releaseK = releaseCutK;
   targetOct = log2f(prm.lowHz);
@@ -925,6 +967,7 @@ void setup() {
 
   pinMode(LED_BUILTIN, OUTPUT);
   webInit();
+  wifiApply(knobWifiState(WIFI_ST_OFF, knobPos));
   // 電源回路（SMPS）を省電力モードから PWM モードに固定する。Wi-Fi チップの GPIO1 につながっている
   // （arduino-pico ではピン 65）。省電力モードは 3.3V の揺れが大きく、PWM の音声出力は 3.3V そのものが
   // 振幅になるので、揺れがそのままノイズとして乗る
@@ -934,8 +977,11 @@ void setup() {
 
 void loop() {
   static bool ledNow = false;
-  dns.processNextRequest();
-  server.handleClient();
+  wifiKnobPoll();
+  if (wifiState != WIFI_ST_OFF) {
+    dns.processNextRequest();
+    server.handleClient();
+  }
   bool w = ledWanted;
   if (w != ledNow) {  // LED は Wi-Fi チップ経由なので、変わったときだけ書く
     ledNow = w;
@@ -1393,26 +1439,14 @@ float tofPoll(Tof &t, uint32_t nowMs) {
   return cm;
 }
 
-// 本体のつまみはスイッチとして使う: オン（少しでも上げた）ならサイン波 100%、
-// オフ（絞り切り）ならブラウザで作った比率を合計 100% にそろえて使う（全部 0 なら無音）
+// ブラウザで作った比率を合計 100% にそろえて使う（全部 0 なら無音）。本体のつまみもここで読む
+// （位置は knobPos に入れ、Wi-Fi の切り替えは Core0 の wifiKnobPoll が行う）
 void updateMix() {
   static float pot = -1.0f;
-  static bool on = false;
-  float v = constrain(analogRead(PIN_POT_SINE) / 4095.0f, 0.0f, 1.0f);
+  float v = constrain(analogRead(PIN_KNOB) / 4095.0f, 0.0f, 1.0f);
   pot = pot < 0 ? v : pot + (v - pot) * 0.2f;  // ADC のノイズをならす
-  potSine = pot;
-  // オン / オフの境目でパタパタしないよう、オンは 6% 以上、オフは 3% 以下（ヒステリシス）
-  if (!on && pot > 0.06f) on = true;
-  if (on && pot < 0.03f) on = false;
-  knobOn = on;
+  knobPos = pot;
 
-  if (on) {
-    targetMix[0] = 1.0f;
-    targetMix[1] = 0.0f;
-    targetMix[2] = 0.0f;
-    ledWanted = true;
-    return;
-  }
   float sum = prm.mix[0] + prm.mix[1] + prm.mix[2];
   float scale = sum > 0.02f ? 1.0f / sum : 0.0f;
   for (int i = 0; i < 3; i++) targetMix[i] = prm.mix[i] * scale;
@@ -1541,7 +1575,7 @@ void printReport() {
       Serial.print(i < 2 ? "/" : "%");
     }
     Serial.print("  pot=");
-    Serial.print((int)(potSine * 100.0f + 0.5f));
+    Serial.print((int)(knobPos * 100.0f + 0.5f));
     Serial.print("%");
     Serial.print("  amp=");
     Serial.print(targetAmp, 2);
@@ -1549,8 +1583,13 @@ void printReport() {
     Serial.print(targetHz, 1);
     Serial.print("  ");
     Serial.print(wifiSsid);
-    Serial.print(" clients=");
-    Serial.print(WiFi.softAPgetStationNum());
+    if (wifiState == WIFI_ST_OFF) {
+      Serial.print(" wifi=off");
+    } else {
+      Serial.print(wifiState == WIFI_ST_OPEN ? " wifi=open" : " wifi=on");
+      Serial.print(" clients=");
+      Serial.print(WiFi.softAPgetStationNum());
+    }
     Serial.print("  isrGapMax=");
     Serial.print(isrGapMaxUs);
     Serial.print("us late=");
@@ -1699,8 +1738,7 @@ const I18N={
 ja:{subtitle:'Digimin の操作パネル',langBtn:'English',
  secLive:'いまの状態',livePitchHand:'音程の手',liveVolHand:'音量の手',livePitch:'音程',liveVol:'音量',silent:'無音',
  secTone:'音色',sine:'サイン波',tri:'三角波',saw:'ノコギリ波',
- toneNote:'比率で混ぜます（合計は常に 100%）。本体のつまみを上げている間は、ここの設定に関係なくサイン波 100% で鳴ります。',
- toneNoteKnob:'本体のつまみがオンなので、いまはサイン波 100% で鳴っています（下の設定はつまみを絞り切ると使われます）。',
+ toneNote:'比率で混ぜます（合計は常に 100%）。',
  secPitch:'音程',lowNote:'最低音',octaves:'音域',glide:'グライド',follow:'追従の速さ',
  followNote:'手を止めたときの音程の揺れ（センサーのばらつき）をならします。上げると動きに速く追従し、下げると揺れにくくなります（その分もたつく）。',
  secDist:'距離',minCm:'音程 いちばん近い',maxCm:'音程 いちばん遠い',holdCm:'最低音のまま',volMinCm:'音量 最大の距離',volMaxCm:'音量 無音の距離',
@@ -1715,11 +1753,11 @@ ja:{subtitle:'Digimin の操作パネル',langBtn:'English',
  fxNote:'深さ・量を 0 にするとオフです。ディレイとリバーブは音を切っても余韻が残ります。',off:'オフ',
  secBoot:'起動時の設定',load:'読込',saveCurrent:'今の設定を保存',clear:'消去',bootSaved:'保存済み',bootUnsaved:'未保存（初期値で起動）',
  bootNote:'電源を入れたときは、ここに保存した設定で起動します。未保存のときは初期値で起動します。消去しても今の設定は変わりません（すぐ初期値にするには「初期値に戻す」）。',
- wifiOn:'パスワードあり',wifiOff:'パスワードなし（誰でもつなげます）',wifiBypass:'つまみを右いっぱいにして起動したので、今回はパスワードなしです',
+ wifiOn:'パスワードあり',wifiOff:'パスワードなし（誰でもつなげます）',wifiBypass:'つまみが右いっぱいなので、パスワードなしです',
  wifiChange:'パスワードを変更',wifiPh:'新しいパスワード（空欄でなし）',wifiBad:'8〜63 文字の英数字・記号にしてください（空欄でパスワードなし）',
  wifiConfirm:'保存すると本体が再起動します。新しい設定で Wi-Fi につなぎ直してください。',wifiConfirmOff:'パスワードをなしにします。保存すると本体が再起動します。',
  wifiDone:'保存しました。再起動します…',
- wifiNote:'8〜63 文字。空欄で保存するとパスワードなしになります。忘れたときは、本体のつまみを右いっぱいに回したまま電源を入れると、その回だけパスワードなしで起動します。',
+ wifiNote:'8〜63 文字。空欄で保存するとパスワードなしになります。忘れたときは、本体のつまみを右いっぱいに回すとパスワードなしになります（保存したパスワードは消えません）。演奏中はつまみを絞り切って Wi-Fi を切ると、Wi-Fi の小さなノイズが消えます。',
  secBuiltin:'組み込みプリセット',builtinNote:'音色とエフェクトだけを変えます（音程・距離・音量の設定はそのまま）。気に入ったらプリセットに保存してください。',
  secPresets:'プリセット',namedPresets:'名前付きプリセット',save:'保存',delete:'削除',empty:'（空き）',presetsNote:'保存の瞬間は音が一瞬止まります。',reset:'初期値に戻す',
  loaded:'読み込みました',saved:'保存しました',bootSavedToast:'起動時の設定を保存しました',builtinLoaded:'{0} を読み込みました',resetDone:'初期値に戻しました',
@@ -1731,8 +1769,7 @@ ja:{subtitle:'Digimin の操作パネル',langBtn:'English',
 en:{subtitle:'Digimin control panel',langBtn:'日本語',
  secLive:'Now',livePitchHand:'Pitch hand',liveVolHand:'Volume hand',livePitch:'Pitch',liveVol:'Volume',silent:'Silent',
  secTone:'Tone',sine:'Sine',tri:'Triangle',saw:'Sawtooth',
- toneNote:'Mixed by ratio (always totals 100%). While the knob on the unit is turned up, it plays 100% sine regardless of these settings.',
- toneNoteKnob:'The knob on the unit is on, so it is playing 100% sine now (these settings apply when the knob is turned all the way down).',
+ toneNote:'Mixed by ratio (always totals 100%).',
  secPitch:'Pitch',lowNote:'Lowest note',octaves:'Range',glide:'Glide',follow:'Tracking speed',
  followNote:'Smooths out sensor jitter when your hand is still. Higher follows movement faster; lower is steadier but feels more sluggish.',
  secDist:'Distance',minCm:'Pitch: nearest',maxCm:'Pitch: farthest',holdCm:'Hold lowest note',volMinCm:'Volume: loudest at',volMaxCm:'Volume: silent at',
@@ -1747,11 +1784,11 @@ en:{subtitle:'Digimin control panel',langBtn:'日本語',
  fxNote:'Set depth or amount to 0 to turn an effect off. Delay and reverb tails continue after the sound stops.',off:'Off',
  secBoot:'Startup settings',load:'Load',saveCurrent:'Save current',clear:'Clear',bootSaved:'Saved',bootUnsaved:'Not saved (starts with defaults)',
  bootNote:'The unit starts with the settings saved here. If nothing is saved, it starts with the defaults. Clearing does not change the current settings (use “Reset to defaults” for that).',
- wifiOn:'Password set',wifiOff:'No password (anyone can connect)',wifiBypass:'Started with the knob full up, so there is no password this time',
+ wifiOn:'Password set',wifiOff:'No password (anyone can connect)',wifiBypass:'The knob is full up, so there is no password',
  wifiChange:'Change password',wifiPh:'New password (empty = none)',wifiBad:'Use 8–63 letters, digits or symbols (empty = no password)',
  wifiConfirm:'The unit will restart after saving. Reconnect to the Wi-Fi with the new settings.',wifiConfirmOff:'Remove the password? The unit will restart after saving.',
  wifiDone:'Saved. Restarting…',
- wifiNote:'8–63 characters. Save it empty for no password. If you forget it, power on with the knob turned all the way up to start without a password that one time.',
+ wifiNote:'8–63 characters. Save it empty for no password. If you forget it, turn the knob on the unit all the way up to run without a password (the saved one is kept). Turn the knob all the way down while playing to switch Wi-Fi off and remove its small noise.',
  secBuiltin:'Built-in presets',builtinNote:'Changes only the tone and effects (pitch, distance and volume settings stay). Save it to a preset if you like it.',
  secPresets:'Presets',namedPresets:'Named presets',save:'Save',delete:'Delete',empty:'(empty)',presetsNote:'The sound stops for a moment while saving.',reset:'Reset to defaults',
  loaded:'Loaded',saved:'Saved',bootSavedToast:'Startup settings saved',builtinLoaded:'Loaded {0}',resetDone:'Reset to defaults',
@@ -1840,10 +1877,10 @@ function fill(s){
  lb.nextElementSibling.textContent=t(fast?'fastDesc':'slowDesc');
  sel.value=hzToMidi(s.lowHz);sel.nextElementSibling.textContent=s.lowHz.toFixed(1)+' Hz';
  if(s.ssid)document.getElementById('ssid').textContent='· '+s.ssid;
- document.getElementById('wifiState').textContent=s.wifiBypassed?t('wifiBypass'):s.wifiPass?t('wifiOn'):t('wifiOff');
+ document.getElementById('wifiState').textContent=s.wifiOpen?t('wifiBypass'):s.wifiPass?t('wifiOn'):t('wifiOff');
  const L=s.live;
  const kn=document.getElementById('knobNote');
- kn.textContent=t(L.knobOn?'toneNoteKnob':'toneNote');kn.style.color=L.knobOn?'var(--acc)':'';
+ kn.textContent=t('toneNote');
  document.getElementById('lp').textContent=L.pitchCm==null?'--':L.pitchCm.toFixed(1)+' cm';
  document.getElementById('lv').textContent=L.volCm==null?'--':L.volCm.toFixed(1)+' cm';
  document.getElementById('bp').style.width=L.pitchCm==null?'0':Math.max(0,Math.min(100,100*(1-(L.pitchCm-s.minCm)/(s.maxCm+s.holdCm-s.minCm))))+'%';
