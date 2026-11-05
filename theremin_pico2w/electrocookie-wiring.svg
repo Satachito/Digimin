@@ -1,6 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1460" height="720" viewBox="0 0 1460 720" font-family="Hiragino Sans, Noto Sans JP, sans-serif">
+<svg xmlns="http://www.w3.org/2000/svg" width="1460" height="745" viewBox="0 0 1460 745" font-family="Hiragino Sans, Noto Sans JP, sans-serif">
 <title>Digimin ElectroCookie 基板の配線図</title>
-<rect width="1460" height="720" fill="#ffffff"/>
+<rect width="1460" height="745" fill="#ffffff"/>
 <rect x="52" y="72" width="800" height="570" rx="20" fill="#1f6f54"/>
 <text x="52" y="50" font-size="22" font-weight="700" fill="#111">ELECTROCOOKIE 基板（abe.txt と同じ向き。使わない 1〜7 行は省略）</text>
 <text x="84" y="662" text-anchor="middle" font-size="15" fill="#555">1</text>
@@ -437,13 +437,15 @@
 <circle cx="222" cy="150" r="7" fill="#fff"/><text x="235" y="155" font-size="13" font-weight="700" fill="#fff">3.3V</text>
 <circle cx="222" cy="242" r="7" fill="#fff"/><text x="235" y="247" font-size="13" font-weight="700" fill="#fff">GND</text>
 <circle cx="176" cy="196" r="7" fill="#fff"/><text x="189" y="201" font-size="13" font-weight="700" fill="#fff">ワイパー</text>
-<rect x="475" y="127" width="322" height="322" rx="10" fill="#0c6d4a" fill-opacity=".92" stroke="#fff" stroke-width="2"/>
-<rect x="648" y="266" width="108" height="44" rx="4" fill="#333"/><rect x="756" y="278" width="30" height="20" fill="#bbb"/>
-<text x="558" y="201" font-size="17" font-weight="700" fill="#fff">3.5mm ジャック</text>
+<rect x="475" y="81" width="322" height="322" rx="10" fill="#0c6d4a" fill-opacity=".92" stroke="#fff" stroke-width="2"/>
+<rect x="648" y="220" width="108" height="44" rx="4" fill="#333"/><rect x="756" y="232" width="30" height="20" fill="#bbb"/>
+<text x="558" y="155" font-size="17" font-weight="700" fill="#fff">3.5mm ジャック</text>
 <circle cx="498" cy="196" r="11" fill="#e8c56a" stroke="#fff" stroke-width="2"/><text x="498" y="201" text-anchor="middle" font-size="14" font-weight="700" fill="#111">L</text>
 <circle cx="498" cy="242" r="11" fill="#e8c56a" stroke="#fff" stroke-width="2"/><text x="498" y="247" text-anchor="middle" font-size="14" font-weight="700" fill="#111">G</text>
 <circle cx="498" cy="288" r="11" fill="#e8c56a" stroke="#fff" stroke-width="2"/><text x="498" y="293" text-anchor="middle" font-size="14" font-weight="700" fill="#111">G</text>
 <circle cx="498" cy="334" r="11" fill="#e8c56a" stroke="#fff" stroke-width="2"/><text x="498" y="339" text-anchor="middle" font-size="14" font-weight="700" fill="#111">R</text>
+<circle cx="682" cy="104" r="11" fill="#e8c56a" stroke="#fff" stroke-width="2"/><circle cx="682" cy="104" r="5" fill="#e23d3d"/>
+<circle cx="682" cy="380" r="11" fill="#e8c56a" stroke="#fff" stroke-width="2"/><circle cx="682" cy="380" r="5" fill="#e23d3d"/>
 <line x1="130" y1="196" x2="62" y2="196" stroke="#2563eb" stroke-width="5" stroke-linecap="round"/>
 <circle cx="130" cy="196" r="8" fill="#2563eb" stroke="#fff" stroke-width="2"/>
 <rect x="43.0" y="183" width="38" height="26" rx="6" fill="#2563eb"/><text x="62" y="202" text-anchor="middle" font-size="16" font-weight="700" fill="#fff">AD</text>
@@ -479,9 +481,11 @@
 <text x="900" y="453" font-size="15.5" fill="#222">C3: 10µF（6 列、13〜15 行。＋は 15 行側）</text>
 <text x="900" y="478" font-size="15.5" fill="#222">R3: 3.3kΩ（13 行 1〜5 列。2〜4 列のパッドには触れない）</text>
 <text x="900" y="503" font-size="15.5" fill="#222">VR: つまみ（9 行 3.3V / 10 行 ワイパー / 11 行 GND）</text>
-<text x="900" y="542" font-size="20" font-weight="700" fill="#111">凡例</text>
-<line x1="900" y1="567" x2="944" y2="567" stroke="#d9a441" stroke-width="12"/><text x="956" y="572" font-size="15.5">基板の銅箔（もともとつながっている）</text>
-<line x1="900" y1="595" x2="944" y2="595" stroke="#ff5a4f" stroke-width="6"/><text x="956" y="600" font-size="15.5">ジャンパー線（途中のパッドには触れない）</text>
-<circle cx="922" cy="623" r="9" fill="#e23d3d" stroke="#fff" stroke-width="2"/><text x="956" y="628" font-size="15.5">はんだ付けするパッド</text>
-<circle cx="922" cy="651" r="8" fill="#2563eb"/><text x="956" y="656" font-size="15.5">基板の外へ出る線</text>
+<text x="900" y="528" font-size="15.5" fill="#222">ジャック: 7×7 マス（8〜14 行、10〜16 列）</text>
+<text x="900" y="553" font-size="15.5" fill="#222">ジャックの補強ピン: 14 列の 8 行と 14 行</text>
+<text x="900" y="592" font-size="20" font-weight="700" fill="#111">凡例</text>
+<line x1="900" y1="617" x2="944" y2="617" stroke="#d9a441" stroke-width="12"/><text x="956" y="622" font-size="15.5">基板の銅箔（もともとつながっている）</text>
+<line x1="900" y1="645" x2="944" y2="645" stroke="#ff5a4f" stroke-width="6"/><text x="956" y="650" font-size="15.5">ジャンパー線（途中のパッドには触れない）</text>
+<circle cx="922" cy="673" r="9" fill="#e23d3d" stroke="#fff" stroke-width="2"/><text x="956" y="678" font-size="15.5">はんだ付けするパッド</text>
+<circle cx="922" cy="701" r="8" fill="#2563eb"/><text x="956" y="706" font-size="15.5">基板の外へ出る線</text>
 </svg>

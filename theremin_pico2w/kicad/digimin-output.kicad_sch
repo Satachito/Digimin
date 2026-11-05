@@ -3321,7 +3321,7 @@
 				)
 			)
 		)
-		(property "Datasheet" ""
+		(property "Datasheet" "https://akizukidenshi.com/catalog/g/g105363/"
 			(at 124.46 78.74 0)
 			(hide yes)
 			(show_name no)

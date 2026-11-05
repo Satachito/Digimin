@@ -21,7 +21,7 @@ An open electronic instrument played with two time-of-flight distance sensors �
 | VL53L4CD モジュール（音量） | 1 |
 | 可変抵抗 10kΩ B カーブ | 1 |
 | 抵抗 1kΩ ×2、3.3kΩ ×1 / コンデンサ 10nF ×2、10µF ×1 | |
-| 3.5mm ステレオジャック | 1 |
+| [3.5mm ステレオジャック（秋月 AE-PHONE-JACK-DIP）](https://akizukidenshi.com/catalog/g/g105363/) | 1 |
 
 ## ピン表
 
