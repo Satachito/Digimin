@@ -1,6 +1,6 @@
 # Digimin 仕様（Pico 2 W 版）
 
-2026-11-02 時点。ファームは `theremin_pico2w/theremin_pico2w.ino`。
+2026-11-05 時点。ファームは `theremin_pico2w/theremin_pico2w.ino`。
 
 ## ハードウェア
 
@@ -49,6 +49,14 @@ GP22 → R1 → R2 → C3 → ジャックの順に直列につなぐ。C1 は R
 
 - 出力はモノラルなので、Tip（L）と Ring（R）を両方つなぐ。
 - 振幅は最大 約3.3Vp-p（ライン入力やアンプの AUX 用。イヤホン直結は想定していない）。
+
+### 基板のレイアウト
+
+RC フィルタ、ジャック、つまみは ElectroCookie の基板にまとめている。元のレイアウトは [abe.txt](abe.txt)。
+
+![ElectroCookie 基板の配線図](electrocookie-wiring.svg)
+
+- 9 列の線（10〜13 行）と R3（13 行 1〜5 列）は、途中のパッドにはんだ付けしない。
 
 ## 演奏の初期値
 
