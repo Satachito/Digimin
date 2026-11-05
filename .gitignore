@@ -5,3 +5,6 @@
 !/LICENSE
 !/theremin_pico2w/
 .DS_Store
+*.lck
+*.kicad_prl
+fp-info-cache
