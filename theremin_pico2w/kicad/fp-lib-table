@@ -1,0 +1,4 @@
+(fp_lib_table
+	(version 7)
+	(lib (name "Digimin") (type "KiCad") (uri "${KIPRJMOD}/Digimin.pretty") (options "") (descr "Digimin footprints"))
+)
