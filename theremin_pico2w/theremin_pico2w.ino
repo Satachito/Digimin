@@ -59,7 +59,22 @@
     可変抵抗（サイン波, 10kΩ B カーブ）  両端 -> 3V3(OUT) と AGND,  ワイパー -> GP28
     基板上の LED（Wi-Fi チップ経由）: 音が出る状態（どれかの比率が 0 でない）のとき点灯
     ※ Pico 2 W は GP23 / GP24 / GP25 / GP29 を Wi-Fi チップに使うので、配線には使わない
+
+  DAC 版（DIGIMIN_DAC を 1 にしてビルド）: 音は PWM ではなく PCM5102A（I2S、96kHz、16bit）から出す。
+  サンプルの計算は同じ割り込みで、I2S の送信バッファに空きができるたびに 1 サンプル作る。左右は同じ音
+    PCM5102A モジュール  LCK -> GP0（物理 1）,  BCK -> GP1（物理 2）,  DIN -> GP2（物理 4）
+                         SCK -> GND（物理 3）,  VIN -> VSYS（物理 39）,  GND -> GND（物理 38）
+                         裏のジャンパー: H1（FLT）/ H2（DEMP）/ H4（FMT）は L、H3（XSMT）は H
+    距離センサー         音程側: SDA -> GP12（物理 16）, SCL -> GP13（物理 17）（I2C0）, XSHUT -> GP11（物理 15）
+                         音量側: SDA -> GP18（物理 24）, SCL -> GP19（物理 25）（I2C1）, XSHUT -> GP20（物理 26）
+    可変抵抗             PWM 版と同じ（ワイパー -> GP28）
+    BCK と LCK は隣り合った GP にする（PIO のサイドセットで 2 本まとめて動かすため）
 */
+
+// 1 = PCM5102A（I2S）版、0 = PWM 版。arduino-cli なら --build-property "compiler.cpp.extra_flags=-DDIGIMIN_DAC=1" でも切り替えられる
+#ifndef DIGIMIN_DAC
+#define DIGIMIN_DAC 0
+#endif
 
 #include <Arduino.h>
 #include <WiFi.h>
@@ -67,6 +82,8 @@
 #include <DNSServer.h>
 #include <EEPROM.h>
 #include "hardware/pwm.h"
+#include "hardware/pio.h"
+#include "hardware/pio_instructions.h"
 #include "hardware/irq.h"
 #include "hardware/clocks.h"
 #include <Wire.h>
@@ -84,15 +101,28 @@ WifiState wifiState = WIFI_ST_OFF;  // いま動いている状態（PASS でも
 uint32_t rebootAtMs = 0;    // 0 以外: この時刻に再起動する（パスワード変更後）
 
 // ---- ピン ----
+#if DIGIMIN_DAC
+const uint8_t PIN_I2S_LCK = 0;   // LCK と BCK は隣り合わせ（PIO のサイドセット: bit0 = LCK, bit1 = BCK）
+const uint8_t PIN_I2S_BCK = 1;
+const uint8_t PIN_I2S_DIN = 2;
+const uint8_t PIN_TOF_SDA = 12;  // I2C0（Wire）の SDA。音程センサー
+const uint8_t PIN_TOF_SCL = 13;  // I2C0（Wire）の SCL
+#else
 const uint8_t PIN_AUDIO = 22;    // PWM はどのピンでも出せる
 const uint8_t PIN_TOF_SDA = 20;  // I2C0（Wire）の SDA。音程センサー（音量センサーを並べてもよい）
 const uint8_t PIN_TOF_SCL = 21;  // I2C0（Wire）の SCL
+#endif
 TwoWire &tofBus = Wire;
 const uint8_t PIN_VOL_SDA = 18;  // I2C1（Wire1）の SDA。音量センサー専用（つながっていなければ I2C0 を探す）
 const uint8_t PIN_VOL_SCL = 19;  // I2C1（Wire1）の SCL
 TwoWire &volBus = Wire1;         // GP18 / GP19 は I2C1 なので Wire ではなく Wire1
+#if DIGIMIN_DAC
+const uint8_t PIN_XSHUT_PITCH = 11;
+const uint8_t PIN_XSHUT_VOL = 20;
+#else
 const uint8_t PIN_XSHUT_PITCH = 17;  // 音程と音量はここを入れ替えるだけで役割が入れ替わる
 const uint8_t PIN_XSHUT_VOL = 16;
+#endif
 const uint8_t PIN_KNOB = 28;  // ADC2
 const uint8_t PIN_SMPS_MODE = 65;  // Wi-Fi チップの GPIO1 = 電源回路のモード切り替え（HIGH で PWM モード）
 
@@ -159,6 +189,10 @@ const float AMP_MS = 32.0f;    // 音量センサーの追従
 const float SAW_GAIN = 1.0f;
 const uint16_t PWM_TOP = 1562;  // 周期 1563 カウント → 150MHz / 1563 ≈ 95969Hz
 const float OUT_LEVEL = 0.9f;   // フルスケールに対する最大振幅
+// DAC 版の最大振幅。PCM5102A のフルスケールは約 2.1Vrms と大きいので、PWM 版の出力（RC フィルタ後に約 1.85Vpp）と
+// 同じくらいの大きさにそろえる。1.0 にすると約 10dB 大きくなる
+const float DAC_LEVEL = 0.3f;
+const float DAC_RATE = 96000.0f;
 
 const int TABLE_BITS = 10;
 const int TABLE_SIZE = 1 << TABLE_BITS;
@@ -270,6 +304,11 @@ ISR_INLINE float polyBlep(float t, float dt) {
 }
 
 uint pwmSlice;
+#if DIGIMIN_DAC
+PIO i2sPio = nullptr;
+uint i2sSm;
+volatile uint32_t i2sStalls = 0;  // 診断用: I2S の送信バッファが空になった回数（音切れ）
+#endif
 volatile bool coreReady = false;  // Core0 の準備（係数・プリセット読み込み）が終わったら true
 
 // PWM の 1 周期ごとに呼ばれ、次の周期のデューティを決める
@@ -282,7 +321,9 @@ void __not_in_flash_func(audioISR)() {
   static float mix[3] = {0.0f, 0.0f, 0.0f};
   static uint8_t div = 0;
 
+#if !DIGIMIN_DAC
   pwm_clear_irq(pwmSlice);
+#endif
   uint32_t isrStart = timer_hw->timerawl;
   {
     static uint32_t lastUs = 0;
@@ -465,6 +506,17 @@ void __not_in_flash_func(audioISR)() {
     }
   }
 
+#if DIGIMIN_DAC
+  // 16bit に変換（量子化誤差は次へ足し込む）。上位 16bit と下位 16bit に同じ値を入れて左右同じ音にする。
+  // 送信バッファに入れると割り込みの要因（空きあり）が満杯になるまで続けて呼ばれる
+  float x = out * DAC_LEVEL * 32767.0f + qerr;
+  int32_t q = (int32_t)(x >= 0.0f ? x + 0.5f : x - 0.5f);  // floorf はフラッシュ上にあるので使わない
+  if (q < -32767) q = -32767;
+  if (q > 32767) q = 32767;
+  qerr = x - q;
+  uint32_t w = (uint16_t)(int16_t)q;
+  pio_sm_put(i2sPio, i2sSm, (w << 16) | w);
+#else
   // 0..PWM_TOP に変換し、前回の量子化誤差を足し込む（1 次ノイズシェーピング）
   float x = (out * OUT_LEVEL * 0.5f + 0.5f) * PWM_TOP + qerr;
   int32_t q = (int32_t)(x + 0.5f);
@@ -472,6 +524,7 @@ void __not_in_flash_func(audioISR)() {
   if (q > PWM_TOP) q = PWM_TOP;
   qerr = x - q;
   pwm_set_gpio_level(PIN_AUDIO, q);  // 次の周期の頭で反映される
+#endif
   uint32_t dur = timer_hw->timerawl - isrStart;
   if (dur > isrDurMaxUs) isrDurMaxUs = dur;
 }
@@ -949,7 +1002,11 @@ void setup() {
   for (int i = 0; i <= TABLE_SIZE; i++) {
     sineTable[i] = sinf(2.0f * PI * i / TABLE_SIZE);
   }
+#if DIGIMIN_DAC
+  sampleRate = DAC_RATE;
+#else
   sampleRate = (float)clock_get_hz(clk_sys) / (PWM_TOP + 1);
+#endif
   ampK = 1.0f - expf(-1000.0f / (AMP_MS * sampleRate));
   hzToInc = 4294967296.0f / sampleRate;
 
@@ -1453,6 +1510,67 @@ void updateMix() {
   ledWanted = scale > 0.0f;
 }
 
+#if DIGIMIN_DAC
+// I2S（PCM5102A）を PIO で出し、割り込みを始める。Core1 から呼ぶので、割り込みは Core1 で処理される。
+// 1 フレーム = 32 BCK（16bit x 左右）。1 ビットに PIO 2 命令。FIFO の 1 ワード = 左 16bit | 右 16bit。
+// サイドセットは bit0 = LCK、bit1 = BCK。LCK は I2S の決まりどおり、各チャンネルの最後のビットで切り替える
+uint16_t i2sProg[8];
+void audioStart() {
+  const uint SS = 2;
+  i2sProg[0] = pio_encode_out(pio_pins, 1) | pio_encode_sideset(SS, 1);   // 右: データ, BCK 低
+  i2sProg[1] = pio_encode_jmp_x_dec(0) | pio_encode_sideset(SS, 3);       //     BCK 高
+  i2sProg[2] = pio_encode_out(pio_pins, 1) | pio_encode_sideset(SS, 0);   // 右の最後のビット、LCK 低へ
+  i2sProg[3] = pio_encode_set(pio_x, 14) | pio_encode_sideset(SS, 2);
+  i2sProg[4] = pio_encode_out(pio_pins, 1) | pio_encode_sideset(SS, 0);   // 左
+  i2sProg[5] = pio_encode_jmp_x_dec(4) | pio_encode_sideset(SS, 2);
+  i2sProg[6] = pio_encode_out(pio_pins, 1) | pio_encode_sideset(SS, 1);   // 左の最後のビット、LCK 高へ
+  i2sProg[7] = pio_encode_set(pio_x, 14) | pio_encode_sideset(SS, 3);     // 開始位置
+  pio_program_t prog = {i2sProg, 8, -1};
+
+  // Wi-Fi チップも PIO を使うので、空いている PIO を後ろから探す
+  PIO pios[3] = {pio2, pio1, pio0};
+  int off = -1;
+  for (PIO p : pios) {
+    if (!pio_can_add_program(p, &prog)) continue;
+    int sm = pio_claim_unused_sm(p, false);
+    if (sm < 0) continue;
+    i2sPio = p; i2sSm = sm;
+    off = pio_add_program(p, &prog);
+    break;
+  }
+  if (off < 0) {
+    Serial.println("I2S: no free PIO");
+    return;
+  }
+  // jmp の飛び先は読み込んだ位置からの絶対番地なので、ずらして書き直す
+  i2sPio->instr_mem[off + 1] = pio_encode_jmp_x_dec(off + 0) | pio_encode_sideset(SS, 3);
+  i2sPio->instr_mem[off + 5] = pio_encode_jmp_x_dec(off + 4) | pio_encode_sideset(SS, 2);
+
+  pio_gpio_init(i2sPio, PIN_I2S_LCK);
+  pio_gpio_init(i2sPio, PIN_I2S_BCK);
+  pio_gpio_init(i2sPio, PIN_I2S_DIN);
+  pio_sm_set_consecutive_pindirs(i2sPio, i2sSm, PIN_I2S_LCK, 3, true);
+  pio_sm_config c = pio_get_default_sm_config();
+  sm_config_set_wrap(&c, off, off + 7);
+  sm_config_set_sideset(&c, SS, false, false);
+  sm_config_set_sideset_pins(&c, PIN_I2S_LCK);
+  sm_config_set_out_pins(&c, PIN_I2S_DIN, 1);
+  sm_config_set_out_shift(&c, false, true, 32);  // MSB から、32bit で自動 pull
+  sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_TX);  // 送信バッファ 8 ワード（約 83µs）
+  sm_config_set_clkdiv(&c, (float)clock_get_hz(clk_sys) / (DAC_RATE * 64.0f));
+  pio_sm_init(i2sPio, i2sSm, off + 7, &c);
+
+  uint irqNum = pio_get_irq_num(i2sPio, 0);
+  pio_set_irq0_source_enabled(i2sPio, (pio_interrupt_source)(pis_sm0_tx_fifo_not_full + i2sSm), true);
+  irq_set_exclusive_handler(irqNum, audioISR);
+  irq_set_priority(irqNum, PICO_HIGHEST_IRQ_PRIORITY);
+  irq_set_enabled(irqNum, true);  // 先に割り込みを有効にして送信バッファを満たしてから動かす
+  delayMicroseconds(200);
+  i2sPio->fdebug = 1u << (PIO_FDEBUG_TXSTALL_LSB + i2sSm);
+  pio_sm_set_enabled(i2sPio, i2sSm, true);
+  Serial.printf("I2S audio started (PIO%d SM%d), sample rate = %.1f\n", (int)PIO_NUM(i2sPio), (int)i2sSm, sampleRate);
+}
+#else
 // 音の PWM と割り込みを始める。Core1 から呼ぶので、割り込みは Core1 で処理される
 void audioStart() {
   gpio_set_function(PIN_AUDIO, GPIO_FUNC_PWM);
@@ -1471,6 +1589,7 @@ void audioStart() {
   Serial.print("PWM audio started, sample rate = ");
   Serial.println(sampleRate, 1);
 }
+#endif
 
 void setup1() {
   // 浮動小数点の非正規化数を 0 として扱う（リバーブの余韻が消えかけの極小値で計算が遅くならないように）
@@ -1596,7 +1715,17 @@ void printReport() {
     Serial.print(isrGapLate);
     Serial.print(" isrDur=");
     Serial.print(isrDurMaxUs);
+#if DIGIMIN_DAC
+    // 送信バッファが空になった（音が途切れた）かどうか。PIO の TXSTALL フラグを見て消す
+    if (i2sPio) {
+      uint32_t bit = 1u << (PIO_FDEBUG_TXSTALL_LSB + i2sSm);
+      if (i2sPio->fdebug & bit) { i2sPio->fdebug = bit; i2sStalls++; }
+    }
+    Serial.print("us stall=");
+    Serial.println(i2sStalls);
+#else
     Serial.println("us");
+#endif
     isrGapMaxUs = 0;
     isrGapLate = 0;
     isrDurMaxUs = 0;

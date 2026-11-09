@@ -10,7 +10,7 @@ An open electronic instrument played with two time-of-flight distance sensors �
 - 波形（サイン・三角・ノコギリ）の混ぜ合わせ、ハーモニー、ビブラート、オーバードライブ、レスリー、コーラス、ディレイ、リバーブ
 - 組み込みプリセット 10 種類、名前付きプリセット 7 つ、起動時の設定
 - 本体が Wi-Fi アクセスポイント「Digimin-XXXX」になり、つなぐと操作画面が開く（日本語 / English）
-- 音は PWM（約96kHz）＋ RC フィルタ 2 段で出力。外付けの DAC は不要
+- 音は PWM（約96kHz）＋ RC フィルタ 2 段で出力。外付けの DAC は不要。PCM5102A（I2S DAC）から出す DAC 版も作れる（[SPEC.md の「DAC 版」](theremin_pico2w/SPEC.md#dac-版pcm5102a)）
 
 ## 必要なもの
 
@@ -39,7 +39,7 @@ An open electronic instrument played with two time-of-flight distance sensors �
 | 33 | AGND | つまみのもう片端 |
 | 3, 8, 13, 18, 23, 28, 38 | GND | センサー GND ×2、RC フィルタ・ジャックの GND |
 
-センサーの GPIO1 は未接続。
+センサーの GPIO1 は未接続。この表は PWM 版のもの。DAC 版はセンサーのピンも違うので、SPEC.md の「DAC 版」を参照。
 
 RC フィルタの定数・初期値など、詳しい仕様は [theremin_pico2w/SPEC.md](theremin_pico2w/SPEC.md) を参照。
 

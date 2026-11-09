@@ -1,16 +1,16 @@
 # Digimin 仕様（Pico 2 W 版）
 
-2026-11-05 時点。ファームは `theremin_pico2w/theremin_pico2w.ino`。
+2026-11-09 時点。ファームは `theremin_pico2w/theremin_pico2w.ino`。
 
 ## ハードウェア
 
 | 項目 | 内容 |
 |---|---|
-| マイコン | Raspberry Pi Pico 2 W（RP2350）×2 台、同じファーム（Digimin-62A2 / Digimin-E738） |
+| マイコン | Raspberry Pi Pico 2 W（RP2350）×3 台。PWM 版 2 台（Digimin-62A2 / Digimin-E738）と DAC 版 1 台（Digimin-6C77） |
 | 音程センサー | VL53L1X — Short モード、受光エリア 8×8（視野 約20°）、測定時間 25ms（約21回/秒） |
 | 音量センサー | VL53L4CD — 測定時間 10ms（約100回/秒） |
 | センサー判別 | 起動時にチップ ID で自動判別（L1X = 0xEACC、L4CD = 0xEBAA）。どちらをどちらに付けても動く |
-| 音の出力 | PWM 約96kHz（150MHz / 1563）→ RC ローパス 2 段 → 3.5mm ジャック |
+| 音の出力 | PWM 版: PWM 約96kHz（150MHz / 1563）→ RC ローパス 2 段 → 3.5mm ジャック。DAC 版: PCM5102A（I2S、96kHz、16bit）。下の「DAC 版」を参照 |
 | つまみ | 10kΩ B カーブ。Wi-Fi の切り替えに使う（絞り切る = オフ、上げる = オン、右いっぱい = パスワードなしでオン） |
 | 電源 | USB（モバイルバッテリー） |
 
@@ -36,7 +36,44 @@
 - 音量センサーは I2C1 に見つからなければ I2C0 も探すので、音程センサーと同じ GP20 / GP21 に並べてつないでも動く。
 - GP23 / GP24 / GP25 / GP29 は Wi-Fi チップが使っているので配線に使わない。
 
-## 出力の RC フィルタ
+## DAC 版（PCM5102A）
+
+PWM と RC フィルタの代わりに、PCM5102A のモジュール（紫色の基板）から音を出す。ファームは同じファイルで、`DIGIMIN_DAC` を 1 にしてビルドする。センサーのピンも PWM 版と違う。
+
+```bash
+arduino-cli compile --fqbn rp2040:rp2040:rpipico2w --build-property "compiler.cpp.extra_flags=-DDIGIMIN_DAC=1" theremin_pico2w
+```
+
+Arduino IDE なら、スケッチの `#define DIGIMIN_DAC 0` を `1` に書き換える。
+
+| 物理ピン | GP | つなぐ先 |
+|---|---|---|
+| 1 | GP0 | DAC LCK |
+| 2 | GP1 | DAC BCK |
+| 3 | GND | DAC SCK |
+| 4 | GP2 | DAC DIN |
+| 15 | GP11 | 音程センサー XSHUT |
+| 16 | GP12 | 音程センサー SDA（I2C0 / Wire、アドレス 0x30 に変更） |
+| 17 | GP13 | 音程センサー SCL（I2C0） |
+| 18 | GND | 音程センサー GND |
+| 23 | GND | 音量センサー GND |
+| 24 | GP18 | 音量センサー SDA（I2C1 / Wire1、アドレス 0x29） |
+| 25 | GP19 | 音量センサー SCL（I2C1） |
+| 26 | GP20 | 音量センサー XSHUT |
+| 33 | AGND | つまみの片端 |
+| 34 | GP28 | つまみのワイパー（ADC2） |
+| 36 | 3V3(OUT) | センサー VIN ×2、つまみのもう片端 |
+| 38 | GND | DAC GND |
+| 39 | VSYS | DAC VIN（約5V。モジュールが自分で 3.3V を作るので、Pico の 3.3V の揺れが音に乗りにくい） |
+
+- BCK と LCK は隣り合った GP にする（PIO のサイドセットで 2 本まとめて動かすため）。
+- モジュール裏のジャンパー: H1（FLT）、H2（DEMP）、H4（FMT）は L、H3（XSMT）は H。H3 が L だとミュートされて音が出ない。
+- 出力はモジュールの LROUT / ROUT / AGND（または付いている 3.5mm ジャック）から取る。左右は同じ音。
+- I2S は PIO で出す。1 フレーム 32 BCK（16bit × 左右）、96kHz。送信バッファ（8 サンプル）に空きができるたびに音の割り込みが 1 サンプル作る。
+- 音量: PCM5102A のフルスケールは約 2.1Vrms と大きいので、PWM 版と同じくらいの大きさになるよう `DAC_LEVEL` を 0.3 にしている。
+- シリアル出力の `stall=` は、送信バッファが空になった（音が途切れた）回数。
+
+## 出力の RC フィルタ（PWM 版）
 
 GP22 → R1 → R2 → C3 → ジャックの順に直列につなぐ。C1 は R1 と R2 の間から GND、C2 は R2 と C3 の間から GND、R3 は C3 とジャックの間から GND。
 
@@ -126,5 +163,6 @@ RC フィルタ、ジャック、つまみは ElectroCookie の基板にまと�
 |---|---|---|
 | Digimin-62A2 | 最新 | この仕様どおり（確認済み） |
 | Digimin-E738 | 最新 | この仕様どおり（確認済み） |
+| Digimin-6C77 | 最新（DAC 版） | 「DAC 版」のとおり（センサー、I2S、音、Wi-Fi を確認済み） |
 
 - 62A2 と E738 では、センサーが測定を始めた瞬間に落ちる（または測定値が来ない）症状があり、どちらも VIN / GND の挿し直しで直った。基板に移すときはセンサーの電源線を確実にはんだ付けする。
