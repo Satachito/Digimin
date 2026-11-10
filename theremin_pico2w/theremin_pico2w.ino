@@ -1,5 +1,5 @@
 /*
-  Digimin theremin (Pico 2 W 版) — Raspberry Pi Pico 2 W + VL53L4CD（または VL53L1X）x2、音声は PWM 出力、ブラウザで操作
+  Digimin theremin (Pico 2 W 版) — Raspberry Pi Pico 2 W + VL53L4CD（または VL53L1X）x2、音声は PCM5102A（I2S DAC）から出力（旧版は PWM 出力）、ブラウザで操作
 
   演奏の仕様は Pico 2 版（theremin_pico_pwm/）と同じ。設定値をブラウザから変えられるようにしたもの。
   Pico 2 W が Wi-Fi のアクセスポイントになる。Wi-Fi の名前は「Digimin-XXXX」（XXXX はチップ固有 ID の
@@ -19,13 +19,14 @@
     起動時の設定: 今の設定を保存しておくと、電源を入れたときにそれで起動する（保存先は 0 番の枠）
     プリセット: 7 個まで名前をつけて保存（本体のフラッシュに残る。保存先は 1〜7 番の枠）
     画面の言語: 日本語 / 英語（端末の言語で自動選択、右上のボタンで切り替え。選んだ言語はブラウザに記憶）
-  本体のつまみ（GP28）で Wi-Fi を切り替える。絞り切ると Wi-Fi オフ、上げるとオン（パスワードを設定して
+  DAC 版は本体のスイッチ（GP5 / GP9、下の「DAC 版」を参照）、PWM 版はつまみ（GP28）で Wi-Fi を切り替える。
+  以下はつまみの場合。絞り切ると Wi-Fi オフ、上げるとオン（パスワードを設定して
   いればパスワードあり）、右いっぱいにするとパスワードなしでオン（保存したパスワードは消えない）。
   Wi-Fi の電波を出している間は、約 6 回/秒の小さな「ブツッ」が音に乗る（電源の揺れ。実測）ので、
   演奏するときはつまみを絞り切って Wi-Fi を切る。
 
   Core0: Wi-Fi / ウェブサーバー / LED。
-  Core1: PWM の 1 周期ごとの割り込み（約 96kHz、最優先）で波形を計算 (GP22)。メインループで
+  Core1: PWM の 1 周期ごと（DAC 版は I2S の送信バッファに空きができるたび）の割り込み（約 96kHz、最優先）で波形を計算。メインループで
          ToF センサー 2 台と可変抵抗を処理する。
          音の割り込みを Core0 に置くと、Wi-Fi の処理が割り込みを止める区間で最大 70µs（7 周期）
          遅れ、ブラウザの更新のたびに「チチッ」と鳴った（実測）。Core1 には Wi-Fi の処理が来ないので
@@ -43,7 +44,7 @@
   ディレイとリバーブは音を切っても余韻が残る。量を 0 にするとオフ（処理は回し続けるので、オンにした
   瞬間に古い音が鳴ることはない）。バッファはディレイ最長 1 秒（int16, 約 190KB）、リバーブ 約 110KB。
 
-  配線（物理ピン: GP16 = 21, GP17 = 22, GP18 = 24, GP19 = 25, GP20 = 26, GP21 = 27, GP22 = 29, GP28 = 34）
+  PWM 版の配線（旧版。DIGIMIN_DAC = 0 でビルド。物理ピン: GP16 = 21, GP17 = 22, GP18 = 24, GP19 = 25, GP20 = 26, GP21 = 27, GP22 = 29, GP28 = 34）
     GP22 -[1kΩ]--+--[1kΩ]--+--[10µF]--+--> AUX (Tip/Ring 両方)
                  |         |          |
               [10nF]    [10nF]     [3.3kΩ]
@@ -60,20 +61,23 @@
     基板上の LED（Wi-Fi チップ経由）: 音が出る状態（どれかの比率が 0 でない）のとき点灯
     ※ Pico 2 W は GP23 / GP24 / GP25 / GP29 を Wi-Fi チップに使うので、配線には使わない
 
-  DAC 版（DIGIMIN_DAC を 1 にしてビルド）: 音は PWM ではなく PCM5102A（I2S、96kHz、16bit）から出す。
+  DAC 版（標準。DIGIMIN_DAC = 1）: 音は PWM ではなく PCM5102A（I2S、96kHz、16bit）から出す。
   サンプルの計算は同じ割り込みで、I2S の送信バッファに空きができるたびに 1 サンプル作る。左右は同じ音
     PCM5102A モジュール  LCK -> GP0（物理 1）,  BCK -> GP1（物理 2）,  DIN -> GP2（物理 4）
                          SCK -> GND（物理 3）,  VIN -> VSYS（物理 39）,  GND -> GND（物理 38）
                          裏のジャンパー: H1（FLT）/ H2（DEMP）/ H4（FMT）は L、H3（XSMT）は H
     距離センサー         音程側: SDA -> GP12（物理 16）, SCL -> GP13（物理 17）（I2C0）, XSHUT -> GP11（物理 15）
                          音量側: SDA -> GP18（物理 24）, SCL -> GP19（物理 25）（I2C1）, XSHUT -> GP20（物理 26）
-    可変抵抗             PWM 版と同じ（ワイパー -> GP28）
+    Wi-Fi スイッチ       GP5（物理 7）と GP9（物理 12）。内部プルアップで、GND に落とすと有効。つまみは使わない
+                         GP5 が GND = Wi-Fi オフ、GP9 が GND = パスワードなしでオン、どちらも開放 = オン
+                         （パスワードを設定していればパスワードあり）。両方 GND ならオフを優先。
+                         ON-OFF-ON のトグルスイッチ 1 個なら、中央の端子を GND、両端を GP5 と GP9 につなぐ
     BCK と LCK は隣り合った GP にする（PIO のサイドセットで 2 本まとめて動かすため）
 */
 
-// 1 = PCM5102A（I2S）版、0 = PWM 版。arduino-cli なら --build-property "compiler.cpp.extra_flags=-DDIGIMIN_DAC=1" でも切り替えられる
+// 1 = PCM5102A（I2S）版（標準）、0 = PWM 版（旧版）。arduino-cli なら --build-property "compiler.cpp.extra_flags=-DDIGIMIN_DAC=0" でも切り替えられる
 #ifndef DIGIMIN_DAC
-#define DIGIMIN_DAC 0
+#define DIGIMIN_DAC 1
 #endif
 
 #include <Arduino.h>
@@ -119,11 +123,15 @@ TwoWire &volBus = Wire1;         // GP18 / GP19 は I2C1 なので Wire では�
 #if DIGIMIN_DAC
 const uint8_t PIN_XSHUT_PITCH = 11;
 const uint8_t PIN_XSHUT_VOL = 20;
+const uint8_t PIN_WIFI_OFF = 5;   // GND に落とすと Wi-Fi オフ（内部プルアップ）
+const uint8_t PIN_WIFI_OPEN = 9;  // GND に落とすとパスワードなしでオン
 #else
 const uint8_t PIN_XSHUT_PITCH = 17;  // 音程と音量はここを入れ替えるだけで役割が入れ替わる
 const uint8_t PIN_XSHUT_VOL = 16;
 #endif
+#if !DIGIMIN_DAC
 const uint8_t PIN_KNOB = 28;  // ADC2
+#endif
 const uint8_t PIN_SMPS_MODE = 65;  // Wi-Fi チップの GPIO1 = 電源回路のモード切り替え（HIGH で PWM モード）
 
 // ---- ブラウザから変えられる設定 ----
@@ -839,6 +847,7 @@ String stateJson() {
        ",\"volCm\":" + (vc < 1000 ? String(vc, 1) : String("null")) +
        ",\"hz\":" + String((float)targetHz, 1) + ",\"amp\":" + String((float)targetAmp, 2) +
        ",\"pot\":" + String((float)knobPos, 2) + "},";
+  j += "\"sw\":" + String(DIGIMIN_DAC ? "true" : "false") + ",";  // true = Wi-Fi はつまみではなくスイッチ
   j += "\"wifiPass\":" + String(wifiPass.length() > 0 ? "true" : "false") +
        ",\"wifiOpen\":" + String(wifiState == WIFI_ST_OPEN ? "true" : "false") + ",";
   j += "\"ssid\":\"" + wifiSsid + "\"";
@@ -941,7 +950,7 @@ void webInit() {
   });
 }
 
-// Wi-Fi をつまみの状態に合わせる（Core0）。切り替えのたびにアクセスポイントを立ち上げ直す
+// Wi-Fi をつまみ（DAC 版はスイッチ）の状態に合わせる（Core0）。切り替えのたびにアクセスポイントを立ち上げ直す
 void wifiApply(WifiState st) {
   if (wifiState != WIFI_ST_OFF) {
     dns.stop();
@@ -949,7 +958,7 @@ void wifiApply(WifiState st) {
   }
   wifiState = st;
   if (st == WIFI_ST_OFF) {
-    Serial.println("Wi-Fi off (knob down)");
+    Serial.println(DIGIMIN_DAC ? "Wi-Fi off (switch)" : "Wi-Fi off (knob down)");
     return;
   }
   static bool serverStarted = false;
@@ -968,7 +977,7 @@ void wifiApply(WifiState st) {
   Serial.print(wifiSsid);
   Serial.print("\" started, http://");
   Serial.print(ip);
-  Serial.println(usePass ? "  (password set)" : st == WIFI_ST_OPEN ? "  (no password: knob full up)" : "  (no password)");
+  Serial.println(usePass ? "  (password set)" : st == WIFI_ST_OPEN ? (DIGIMIN_DAC ? "  (no password: switch)" : "  (no password: knob full up)") : "  (no password)");
 }
 
 // つまみの位置から Wi-Fi の状態を決める。境目でパタパタしないようにヒステリシスをつける
@@ -981,11 +990,25 @@ WifiState knobWifiState(WifiState cur, float pot) {
   return WIFI_ST_PASS;
 }
 
+#if DIGIMIN_DAC
+// スイッチの位置から Wi-Fi の状態を決める（GND に落ちている = LOW）。両方 LOW ならオフを優先
+WifiState switchWifiState() {
+  if (digitalRead(PIN_WIFI_OFF) == LOW) return WIFI_ST_OFF;
+  if (digitalRead(PIN_WIFI_OPEN) == LOW) return WIFI_ST_OPEN;
+  return WIFI_ST_PASS;
+}
+#endif
+
 // つまみを回している途中で何度も立ち上げ直さないよう、同じ状態が 0.7 秒続いてから切り替える
+// （スイッチのチャタリングもこれで吸収する）
 void wifiKnobPoll() {
   static WifiState want = WIFI_ST_OFF;
   static uint32_t sinceMs = 0;
+#if DIGIMIN_DAC
+  WifiState st = switchWifiState();
+#else
   WifiState st = knobWifiState(wifiState, knobPos);
+#endif
   uint32_t nowMs = millis();
   if (st != want) {
     want = st;
@@ -1013,8 +1036,13 @@ void setup() {
   reverbInit();
   presetsInit();
   wifiCfgLoad();
+#if DIGIMIN_DAC
+  pinMode(PIN_WIFI_OFF, INPUT_PULLUP);
+  pinMode(PIN_WIFI_OPEN, INPUT_PULLUP);
+#else
   analogReadResolution(12);
   knobPos = analogRead(PIN_KNOB) / 4095.0f;  // 起動時の Wi-Fi はすぐにつまみの位置で決める（Core1 が動く前）
+#endif
   if (!presetLoad(0)) applyParams();  // 起動時の設定（0 番の枠）が保存してあれば読み込む
   releaseK = releaseCutK;
   targetOct = log2f(prm.lowHz);
@@ -1024,7 +1052,11 @@ void setup() {
 
   pinMode(LED_BUILTIN, OUTPUT);
   webInit();
+#if DIGIMIN_DAC
+  wifiApply(switchWifiState());  // 起動時の Wi-Fi はすぐにスイッチの位置で決める
+#else
   wifiApply(knobWifiState(WIFI_ST_OFF, knobPos));
+#endif
   // 電源回路（SMPS）を省電力モードから PWM モードに固定する。Wi-Fi チップの GPIO1 につながっている
   // （arduino-pico ではピン 65）。省電力モードは 3.3V の揺れが大きく、PWM の音声出力は 3.3V そのものが
   // 振幅になるので、揺れがそのままノイズとして乗る
@@ -1499,10 +1531,12 @@ float tofPoll(Tof &t, uint32_t nowMs) {
 // ブラウザで作った比率を合計 100% にそろえて使う（全部 0 なら無音）。本体のつまみもここで読む
 // （位置は knobPos に入れ、Wi-Fi の切り替えは Core0 の wifiKnobPoll が行う）
 void updateMix() {
+#if !DIGIMIN_DAC
   static float pot = -1.0f;
   float v = constrain(analogRead(PIN_KNOB) / 4095.0f, 0.0f, 1.0f);
   pot = pot < 0 ? v : pot + (v - pot) * 0.2f;  // ADC のノイズをならす
   knobPos = pot;
+#endif
 
   float sum = prm.mix[0] + prm.mix[1] + prm.mix[2];
   float scale = sum > 0.02f ? 1.0f / sum : 0.0f;
@@ -1693,9 +1727,14 @@ void printReport() {
       Serial.print((int)(targetMix[i] * 100.0f + 0.5f));
       Serial.print(i < 2 ? "/" : "%");
     }
+#if DIGIMIN_DAC
+    Serial.print("  sw=");
+    Serial.print(digitalRead(PIN_WIFI_OFF) == LOW ? "off" : digitalRead(PIN_WIFI_OPEN) == LOW ? "open" : "on");
+#else
     Serial.print("  pot=");
     Serial.print((int)(knobPos * 100.0f + 0.5f));
     Serial.print("%");
+#endif
     Serial.print("  amp=");
     Serial.print(targetAmp, 2);
     Serial.print("  hz=");
@@ -1883,6 +1922,8 @@ ja:{subtitle:'Digimin の操作パネル',langBtn:'English',
  secBoot:'起動時の設定',load:'読込',saveCurrent:'今の設定を保存',clear:'消去',bootSaved:'保存済み',bootUnsaved:'未保存（初期値で起動）',
  bootNote:'電源を入れたときは、ここに保存した設定で起動します。未保存のときは初期値で起動します。消去しても今の設定は変わりません（すぐ初期値にするには「初期値に戻す」）。',
  wifiOn:'パスワードあり',wifiOff:'パスワードなし（誰でもつなげます）',wifiBypass:'つまみが右いっぱいなので、パスワードなしです',
+ wifiBypassSw:'スイッチがパスワードなしの位置なので、パスワードなしです',
+ wifiNoteSw:'8〜63 文字。空欄で保存するとパスワードなしになります。忘れたときは、本体のスイッチをパスワードなしの位置にするとパスワードなしになります（保存したパスワードは消えません）。',
  wifiChange:'パスワードを変更',wifiPh:'新しいパスワード（空欄でなし）',wifiBad:'8〜63 文字の英数字・記号にしてください（空欄でパスワードなし）',
  wifiConfirm:'保存すると本体が再起動します。新しい設定で Wi-Fi につなぎ直してください。',wifiConfirmOff:'パスワードをなしにします。保存すると本体が再起動します。',
  wifiDone:'保存しました。再起動します…',
@@ -1914,6 +1955,8 @@ en:{subtitle:'Digimin control panel',langBtn:'日本語',
  secBoot:'Startup settings',load:'Load',saveCurrent:'Save current',clear:'Clear',bootSaved:'Saved',bootUnsaved:'Not saved (starts with defaults)',
  bootNote:'The unit starts with the settings saved here. If nothing is saved, it starts with the defaults. Clearing does not change the current settings (use “Reset to defaults” for that).',
  wifiOn:'Password set',wifiOff:'No password (anyone can connect)',wifiBypass:'The knob is full up, so there is no password',
+ wifiBypassSw:'The switch is in the no-password position, so there is no password',
+ wifiNoteSw:'8–63 characters. Save it empty for no password. If you forget it, set the switch on the unit to the no-password position (the saved one is kept).',
  wifiChange:'Change password',wifiPh:'New password (empty = none)',wifiBad:'Use 8–63 letters, digits or symbols (empty = no password)',
  wifiConfirm:'The unit will restart after saving. Reconnect to the Wi-Fi with the new settings.',wifiConfirmOff:'Remove the password? The unit will restart after saving.',
  wifiDone:'Saved. Restarting…',
@@ -2006,7 +2049,7 @@ function fill(s){
  lb.nextElementSibling.textContent=t(fast?'fastDesc':'slowDesc');
  sel.value=hzToMidi(s.lowHz);sel.nextElementSibling.textContent=s.lowHz.toFixed(1)+' Hz';
  if(s.ssid)document.getElementById('ssid').textContent='· '+s.ssid;
- document.getElementById('wifiState').textContent=s.wifiOpen?t('wifiBypass'):s.wifiPass?t('wifiOn'):t('wifiOff');
+ document.getElementById('wifiState').textContent=s.wifiOpen?t(s.sw?'wifiBypassSw':'wifiBypass'):s.wifiPass?t('wifiOn'):t('wifiOff');
  const L=s.live;
  const kn=document.getElementById('knobNote');
  kn.textContent=t('toneNote');
@@ -2027,7 +2070,7 @@ function renderBoot(b){const n=document.getElementById('bootName');
  document.getElementById('bootLoadBtn').disabled=!b.used;document.getElementById('bootClearBtn').disabled=!b.used}
 // ページ上には入力欄を置かない（キャプティブポータルの画面が入力欄にフォーカスしてキーボードが出るため）。
 // ボタンを押したときだけダイアログで入力する
-async function wifiSave(){const p=await dialog(t('wifiPh'),'',t('wifiNote'));if(p===null)return;
+async function wifiSave(){const p=await dialog(t('wifiPh'),'',t(st&&st.sw?'wifiNoteSw':'wifiNote'));if(p===null)return;
  if(p.length&&(p.length<8||p.length>63||!/^[\x20-\x7e]*$/.test(p))){toast(t('wifiBad'));return}
  if(!await dialog(t(p.length?'wifiConfirm':'wifiConfirmOff')))return;
  fetch('/api/wifi/pass',{method:'POST',body:new URLSearchParams({pass:p})}).then(r=>{if(!r.ok)throw 0;toast(t('wifiDone'))}).catch(()=>toast(t('wifiBad')))}
