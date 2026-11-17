@@ -43,11 +43,15 @@ An open electronic instrument played with two time-of-flight distance sensors �
 | 26 | GP20 | 音量センサー XSHUT |
 | 36 | 3V3(OUT) | センサー VIN ×2 |
 | 38 | GND | DAC GND |
-| 39 | VSYS | DAC VIN |
+| 40 | VBUS | DAC VIN |
 
 - センサーの GPIO1 は未接続。
 - DAC モジュール裏のジャンパーは、H1（FLT）、H2（DEMP）、H4（FMT）を L、H3（XSMT）を H にする。H3 が L だとミュートされて音が出ない。
 - 音は DAC モジュールの 3.5mm ジャック（または LROUT / ROUT / AGND の端子）から出す。左右は同じ音。
+- パソコンの USB から電源をとり、同じパソコンにつながったスピーカーやアンプで鳴らすと、グラウンドループで「ババババ」というノイズが乗ることがある。演奏はモバイルバッテリーで電源をとる。
+- DAC の GND の接続が悪いと、鳴ったり鳴らなかったりする。GND の線はしっかりつなぐ。
+
+- 基板（Pico 2 WH をソケットに挿し、DAC モジュールを直接はんだ付けする親基板。KiCad、JLCPCB 向けの製造データ付き）は [theremin_pico2w/kicad_dac/](theremin_pico2w/kicad_dac/)。
 
 詳しい仕様は [theremin_pico2w/SPEC.md](theremin_pico2w/SPEC.md) を参照。
 

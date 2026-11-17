@@ -64,7 +64,7 @@
   DAC 版（標準。DIGIMIN_DAC = 1）: 音は PWM ではなく PCM5102A（I2S、96kHz、16bit）から出す。
   サンプルの計算は同じ割り込みで、I2S の送信バッファに空きができるたびに 1 サンプル作る。左右は同じ音
     PCM5102A モジュール  LCK -> GP0（物理 1）,  BCK -> GP1（物理 2）,  DIN -> GP2（物理 4）
-                         SCK -> GND（物理 3）,  VIN -> VSYS（物理 39）,  GND -> GND（物理 38）
+                         SCK -> GND（物理 3）,  VIN -> VBUS（物理 40）,  GND -> GND（物理 38）
                          裏のジャンパー: H1（FLT）/ H2（DEMP）/ H4（FMT）は L、H3（XSMT）は H
     距離センサー         音程側: SDA -> GP12（物理 16）, SCL -> GP13（物理 17）（I2C0）, XSHUT -> GP11（物理 15）
                          音量側: SDA -> GP18（物理 24）, SCL -> GP19（物理 25）（I2C1）, XSHUT -> GP20（物理 26）
